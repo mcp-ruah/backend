@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "youtube_data": {
+      "command": "C:\\Users\\pps\\Desktop\\projects\\mcp-org\\mcp-server\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\pps\\Desktop\\projects\\mcp-org\\mcp-server\\tools\\youtube.py"
+      ],
+      "env": {
+        "YOUTUBE_API_KEY": "your_youtube_api_key"
+      }
+    },
+    "weather_server": {
+      "command": "C:\\Users\\pps\\Desktop\\projects\\mcp-org\\mcp-server\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\pps\\Desktop\\projects\\mcp-org\\mcp-server\\tools\\weather.py"
+      ]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:\\Users\\pps\\Desktop",
+        "C:\\Users\\pps\\Downloads"
+      ]
+    }
+  }
+}
