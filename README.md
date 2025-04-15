@@ -17,3 +17,8 @@ source .venv/bin/activate
 // 라이브러리 설치
 uv pip install -e .
 ```
+
+```
+// 백엔드 서버 시작
+uvicorn main:app --host 127.0.0.1 --port 8000
+```
