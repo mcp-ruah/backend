@@ -13,8 +13,7 @@ uv venv 	// .venv 가상환경 설치
 // MacOS
 source .venv/bin/activate 
 
-uv add "mcp[cli]"
 
 // 라이브러리 설치
-uv add -r requirements.txt
+uv pip install -e .
 ```
