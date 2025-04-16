@@ -2,10 +2,11 @@ import os
 import json
 import asyncio
 import shutil
+import uuid
 import httpx
 from dotenv import load_dotenv
 from utils.logger import logger
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict, List, AsyncGenerator
 from dataclasses import dataclass, field
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -22,7 +23,7 @@ class Configuration:
     def __post_init__(self):
         """dataclass 초기화 후 추가 작업을 수행합니다."""
         self.load_env()
-        self.api_key = os.getenv("LLM_API_KEY")
+        self.api_key = os.getenv("ANTHROPIC_API_KEY")
 
     @staticmethod
     def load_env() -> None:
@@ -118,8 +119,9 @@ class Server:
 
         for item in tools_response:
             if isinstance(item, tuple) and item[0] == "tools":
+
                 for tool in item[1]:
-                    tools.append(Tool(tool.name, tool.description, tool.input_schema))
+                    tools.append(Tool(tool.name, tool.description, tool.inputSchema))
 
         return tools
 
@@ -212,7 +214,9 @@ class LLMClient:
 
     api_key: str
 
-    def get_response(self, messages: List[Dict[str, str]]) -> str:
+    async def get_response(
+        self, messages: List[Dict[str, str]]
+    ) -> AsyncGenerator[str, None]:
         """LLM에서 응답을 가져옴
 
         Args:
@@ -224,45 +228,55 @@ class LLMClient:
         Raises:
             httpx.RequestError: LLM 요청이 실패하는 경우
         """
-        from anthropic import Anthropic
+        from anthropic import AsyncAnthropic
+        from anthropic import APIError
 
-        client = Anthropic(api_key=self.api_key)
+        client = AsyncAnthropic(api_key=str(self.api_key))
+        logger.debug(f"API key : {type(self.api_key)}")
         model = "claude-3-7-sonnet-20250219"
         temperature = 0.7
 
-        url = "https;//api.anthropic.com/v1/messages"
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": self.api_key,
-            "anthropic-version": "2023-06-01",
-        }
-
-        playload = {
-            "model": model,
-            "max_tokens": 4096,
-            "messages": messages,
-            "temperature": temperature,
-        }
-
         try:
-            with httpx.Client() as client:
-                response = client.post(url, headers=headers, json=playload)
-                response.raise_for_status()
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
+            formatted_messages = []
+            system_content = None
 
-        except httpx.RequestError as e:
-            error_message = f"LLM 응답 가져오기 실패 : {str(e)}"
-            logger.error(error_message)
+            # 시스템 메시지 추출
+            for msg in messages:
+                if msg.get("role") == "system" and msg.get("content"):
+                    content = msg.get("content")
+                    if isinstance(content, (tuple, list)):
+                        system_content = "".join(content)
+                        logger.debug(f"시스템 메시지 발견: {system_content}")
+                    break
 
-            if isinstance(e, httpx.HTTPStatusError):
-                status_code = e.response.status_code
-                logger.error(f"Status code: {status_code}")
-                logger.error(f"Response details: {e.response.text}")
-            return (
-                f"오류가 발생했습니다.{error_message}."
-                "다시 시도하거나 요청을 다른 방식으로 표현해주세요."
-            )
+            # 나머지 메시지 형식 변환
+            for msg in messages:
+                if (
+                    msg.get("role")
+                    and msg.get("content")
+                    and msg.get("role") != "system"
+                ):
+                    formatted_messages.append(
+                        {"role": msg["role"], "content": msg["content"]}
+                    )
+
+            async with client.messages.stream(
+                max_tokens=4096,
+                model=model,
+                system=system_content,
+                temperature=temperature,
+                messages=formatted_messages,
+            ) as stream:
+                async for event in stream:
+                    if event.type == "text":
+                        yield event.text
+
+        except APIError as e:
+            logger.error(f"Anthropic API 오류 : {e}")
+            yield f"오류가 발생했습니다. 다시 시도해주세요. {str(e)}"
+        except Exception as e:
+            logger.error(f"LLM 응답 가져오기 실패 : {str(e)}")
+            yield f"오류가 발생했습니다. 다시 시도해주세요. {str(e)}"
 
 
 @dataclass
@@ -294,18 +308,40 @@ class ChatSession:
             도구 실행 결과 또는 응답
         """
         try:
-            # 응답 파싱
-            tool_call = json.loads(llm_response)
-            if "tool" in tool_call and "arguments" in tool_call:
-                logger.info(f"Executing tool : {tool_call['tool']}")
-                logger.info(f"With arguments : {tool_call['arguments']}")
+            # 전체 응답에서 JSON 부분 추출 시도
+            json_obj = None
+
+            # 1. 먼저 전체 텍스트를 JSON으로 파싱 시도
+            try:
+                json_obj = json.loads(llm_response)
+                logger.info("전체 텍스트가 유효한 JSON입니다.")
+            except json.JSONDecodeError:
+                # 2. 실패하면 중괄호 기준으로 JSON 부분 추출 시도
+                start_idx = llm_response.find("{")
+                end_idx = llm_response.rfind("}") + 1
+
+                if start_idx != -1 and end_idx > start_idx:
+                    try:
+                        json_str = llm_response[start_idx:end_idx]
+                        json_obj = json.loads(json_str)
+                        logger.info(
+                            f"텍스트에서 JSON 부분을 추출했습니다: {json_str[:50]}..."
+                        )
+                    except json.JSONDecodeError as e:
+                        logger.error(f"추출된 JSON 부분 파싱 실패: {e}")
+                else:
+                    logger.warning("JSON 객체를 찾을 수 없습니다.")
+            # 도구 실행
+            if json_obj and "tool" in json_obj and "arguments" in json_obj:
+                logger.info(f"Executing tool: {json_obj['tool']}")
+                logger.info(f"With arguments: {json_obj['arguments']}")
 
                 for server in self.servers:
                     tools = await server.list_tools()
-                    if any(tool.name == tool_call["tool"] for tool in tools):
+                    if any(tool.name == json_obj["tool"] for tool in tools):
                         try:
                             result = await server.execute_tool(
-                                tool_call["tool"], tool_call["arguments"]
+                                json_obj["tool"], json_obj["arguments"]
                             )
                             if isinstance(result, dict) and "progress" in result:
                                 progress = result["progress"]
@@ -318,17 +354,22 @@ class ChatSession:
 
                             return f"Tool execution result: {result}"
                         except Exception as e:
-                            error_msg = f"Error executing tool : {str(e)}"
+                            error_msg = f"Error executing tool: {str(e)}"
                             logger.error(error_msg)
                             return error_msg
-                return f"No server found with tool: {tool_call['tool']}"
+                return f"No server found with tool: {json_obj['tool']}"
+
+            # JSON 객체가 없거나, tool이나 arguments가 없는 경우
+            logger.info(
+                "도구 실행 조건을 만족하지 않음(JSON 형식이 아니거나, tool이나 arguments 필드가 없음)"
+            )
             return llm_response
         except json.JSONDecodeError:
             return llm_response
 
     async def chat(
         self, message: str, session_id: str, sessions: Dict[str, List[str]]
-    ) -> str:
+    ) -> AsyncGenerator[str, None]:
         """메인 채팅 세션 handler"""
         try:
 
@@ -356,7 +397,7 @@ class ChatSession:
                 '       "argument-name" : "value",\n'
                 "   }\n"
                 "}\n\n"
-                "After receiving a tool's response:\n",
+                "After receiving a tool's response:\n"
                 "1. Transform the raw data into a natural, conversational response\n"
                 "2. Keep responses concise but informative\n"
                 "3. Focus on the most relevant information\n"
@@ -366,7 +407,7 @@ class ChatSession:
             )
             conversation = sessions[session_id]
 
-            messages = [{"role": "system", "content ": system_message}]
+            messages = [{"role": "system", "content": system_message}]
 
             for msg in conversation:
                 messages.append(
@@ -380,29 +421,48 @@ class ChatSession:
             messages.append({"role": "user", "content": message})
             conversation.append(f"user: {message}")
 
-            # get LLM response
-            llm_response = self.llm_client.get_response(messages)
+            # LLM 응답을 직접 yield
+            full_response = ""
+            async for chunk in self.llm_client.get_response(messages):
+                full_response += chunk
+                yield chunk
+            logger.debug(f"전체 LLM 응답: {full_response}")
 
-            # execute tool if needed
-            result = await self.process_llm_response(llm_response)
+            conversation.append(f"assistant: {full_response}")
+            try:
+                logger.info("도구 실행 로직 시작...")
+                # 도구 실행 결과 가져오기
+                tool_result = await self.process_llm_response(full_response)
 
-            # if tool execution exists, more processing
-            if result != llm_response:
-                messages.append({"role": "assistant", "content": llm_response})
-                messages.append({"role": "system", "content": result})
+                # 도구 실행 결과가 원본 응답과 다른 경우 (도구가 실행된 경우)
+                if tool_result != full_response:
+                    logger.info("도구가 성공적으로 실행되었습니다.")
+                    yield "\n\n"
+                    yield "도구 실행 결과를 분석 중...\n"
 
-                # final response
-                final_response = self.llm_client.get_response(messages)
-                conversation.append(f"assistant: {final_response}")
-                logger.info("\nFinal response: %s", final_response)
-                return final_response
-            else:
-                conversation.append(f"assistant: {llm_response}")
-                logger.info("\nFinal response: %s", llm_response)
-                return llm_response
+                    # 도구 실행 결과로 새 메시지 생성
+                    messages.append({"role": "assistant", "content": full_response})
+                    messages.append({"role": "system", "content": tool_result})
+                    logger.debug(f"도구 실행 결과: {tool_result}")
+
+                    # 최종 응답 생성
+                    final_response = ""
+                    async for chunk in self.llm_client.get_response(messages):
+                        final_response += chunk
+                        yield chunk
+
+                    # 최종 응답 저장
+                    conversation.append(f"assistant: {final_response}")
+                    logger.info("도구 실행 결과를 바탕으로 최종 응답 생성 완료")
+                else:
+                    logger.info("도구 실행이 필요 없거나, JSON 파싱에 실패했습니다.")
+            except Exception as e:
+                logger.error(f"도구 처리 중 오류: {e}", exc_info=True)
+                yield f"\n\n도구 처리 중 오류가 발생했습니다: {str(e)}"
+
         except Exception as e:
-            logger.error(f"Error in chat: {e}")
-            return f"오류가 발생했습니다. 다시 시도해주세요. {str(e)}"
+            logger.error(f"채팅 처리 중 오류: {e}", exc_info=True)
+            yield f"오류가 발생했습니다. 다시 시도해주세요. {str(e)}"
 
 
 # main.py 에서 사용하기 위한 서버초기화 및 세션 관리 함수
@@ -426,7 +486,7 @@ async def initialize_mcp_servers(
         logger.info(f"서버 인스턴스 생성 완료: {len(servers)}개")
 
         # create LLM client
-        llm_client = LLMClient(config.llm_api_key)
+        llm_client = LLMClient(config.api_key)
         logger.info("LLM 클라이언트 생성 완료")
 
         # initialize servers

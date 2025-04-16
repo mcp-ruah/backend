@@ -3,6 +3,7 @@ import uvicorn
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, Body, Cookie, Header, Query
+from fastapi.responses import StreamingResponse
 from typing import List, Optional, AsyncGenerator, Dict
 import uuid
 from pydantic import BaseModel
@@ -10,6 +11,7 @@ from schema import ChatRequest
 from server import initialize_mcp_servers, ChatSession
 from contextlib import asynccontextmanager
 from utils.logger import logger
+import json
 
 
 # Windows에서 ProactorEventLoop 설정
@@ -74,14 +76,14 @@ app.add_middleware(
 
 
 @app.post("/api/chat")
-async def api_chat(request_data: ChatRequest):
+async def api_chat(request: ChatRequest):
     """
     채팅 API 엔드포인트
     """
     global chat_session, sessions
 
     # 세션 ID 확인/생성
-    session_id = request_data.session_id
+    session_id = request.session_id
     if not session_id or session_id not in sessions:
         session_id = str(uuid.uuid4())
 
@@ -93,18 +95,11 @@ async def api_chat(request_data: ChatRequest):
             "confidence": 0.0,
         }
 
-    try:
-        # 채팅 응답 처리
-        response = await chat_session.chat(request_data.message, session_id, sessions)
+    async def generate():
+        async for chunk in chat_session.chat(request.message, session_id, sessions):
+            yield chunk
 
-        return {"response": response, "session_id": session_id, "confidence": 0.95}
-    except Exception as e:
-        logger.error(f"채팅 처리 중 오류: {str(e)}")
-        return {
-            "response": f"죄송합니다, 오류가 발생했습니다: {str(e)}",
-            "session_id": session_id,
-            "confidence": 0.1,
-        }
+    return StreamingResponse(generate(), media_type="text/plain")
 
 
 @app.post("/api/reset-chat")
