@@ -87,6 +87,7 @@ class Server:
                 {**os.environ, **self.config["env"]} if self.config.get("env") else None
             ),
         )
+
         try:
             stdio_transport = await self.exit_stack.enter_async_context(
                 stdio_client(server_params)
@@ -425,6 +426,7 @@ class ChatSession:
             full_response = ""
             async for chunk in self.llm_client.get_response(messages):
                 full_response += chunk
+                # logger.debug(f"첫 응답 청크: {chunk}")
                 yield chunk
             logger.debug(f"전체 LLM 응답: {full_response}")
 
@@ -437,18 +439,18 @@ class ChatSession:
                 # 도구 실행 결과가 원본 응답과 다른 경우 (도구가 실행된 경우)
                 if tool_result != full_response:
                     logger.info("도구가 성공적으로 실행되었습니다.")
-                    yield "\n\n"
-                    yield "도구 실행 결과를 분석 중...\n"
+                    yield "\n\n도구 실행 결과를 분석 중...\n\n"
 
                     # 도구 실행 결과로 새 메시지 생성
                     messages.append({"role": "assistant", "content": full_response})
-                    messages.append({"role": "system", "content": tool_result})
+                    messages.append({"role": "assistant", "content": tool_result})
                     logger.debug(f"도구 실행 결과: {tool_result}")
 
                     # 최종 응답 생성
                     final_response = ""
                     async for chunk in self.llm_client.get_response(messages):
                         final_response += chunk
+                        # logger.debug(f"최종 응답 청크: {chunk}")
                         yield chunk
 
                     # 최종 응답 저장

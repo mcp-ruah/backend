@@ -12,10 +12,15 @@ from server import initialize_mcp_servers, ChatSession
 from contextlib import asynccontextmanager
 from utils.logger import logger
 import json
+import subprocess
 
 
 # Windows에서 ProactorEventLoop 설정
 if sys.platform == "win32":
+    from asyncio import WindowsSelectorEventLoopPolicy, WindowsProactorEventLoopPolicy
+
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+else:
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
@@ -33,6 +38,7 @@ async def lifspan(app: FastAPI):
     종료시 실행되는 코드는 yield 후에 배치
     """
     global chat_session
+
     try:
         # MCP 서버 및 채팅 세션 초기화
         chat_session = await initialize_mcp_servers()
@@ -40,6 +46,7 @@ async def lifspan(app: FastAPI):
             logger.error("채팅 세션 초기화 실패")
         else:
             logger.info("mcp 서버 초기화 완료")
+
     except Exception as e:
         logger.error(f"시작 이벤트 중 오류 : {e}")
 
@@ -84,8 +91,14 @@ async def api_chat(request: ChatRequest):
 
     # 세션 ID 확인/생성
     session_id = request.session_id
-    if not session_id or session_id not in sessions:
+    # logger.debug(f"\n\n세션 ID: {session_id}\n\n")
+    if not session_id:
         session_id = str(uuid.uuid4())
+
+    # 세션이 없으면 새로 생성
+    if session_id not in sessions:
+        logger.info(f"세션 ID {session_id}에 대한 새 대화 기록 생성")
+        sessions[session_id] = []
 
     # 채팅 세션 확인
     if not chat_session:
@@ -100,6 +113,23 @@ async def api_chat(request: ChatRequest):
             yield chunk
 
     return StreamingResponse(generate(), media_type="text/plain")
+
+
+@app.get("/api/sessions")
+async def get_sessions():
+    """
+    디버깅용: 현재 활성화된 세션 목록 반환
+    """
+    global sessions
+
+    session_info = {}
+    for session_id, messages in sessions.items():
+        session_info[session_id] = {
+            "message_count": len(messages),
+            "first_message": messages[0] if messages else None,
+            "last_message": messages[-1] if messages else None,
+        }
+    return {"total_sessions": len(sessions), "sessions": session_info}
 
 
 @app.post("/api/reset-chat")
