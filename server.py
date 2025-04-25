@@ -80,13 +80,36 @@ class Server:
         if command is None:
             raise ValueError(f"Command {self.config['command']} not found")
 
-        server_params = StdioServerParameters(
-            command=command,
-            args=self.config["args"],
-            env=(
-                {**os.environ, **self.config["env"]} if self.config.get("env") else None
-            ),
-        )
+        # Docker 실행 시 환경 변수를 명시적으로 추가
+        if self.config["command"] == "docker" and self.config.get("env"):
+            modified_args = self.config["args"].copy()
+            env_args = []
+            for key, value in self.config["env"].items():
+                env_args.extend(["-e", f"{key}={value}"])
+
+            # Docker run 명령 다음에 환경 변수 옵션 삽입
+            run_index = modified_args.index("run")
+            modified_args[run_index + 1 : run_index + 1] = env_args
+
+            server_params = StdioServerParameters(
+                command=command,
+                args=modified_args,
+                env=None,  # Docker에 직접 전달하므로 여기서는 필요 없음
+            )
+        else:
+            server_params = StdioServerParameters(
+                command=command,
+                args=self.config["args"],
+                env=self.config.get("env"),
+            )
+
+        if self.config.get("env"):
+            logger.info("=" * 40)
+            logger.info(f"서버 {self.name}의 환경 변수:")
+            logger.info(self.config["env"])
+            logger.info("명령어 인자:")
+            logger.info(server_params.args)
+            logger.info("=" * 40)
 
         try:
             stdio_transport = await self.exit_stack.enter_async_context(
@@ -125,6 +148,34 @@ class Server:
                     tools.append(Tool(tool.name, tool.description, tool.inputSchema))
 
         return tools
+
+    async def get_status(self) -> Dict[str, Any]:
+        """서버 상태 정보 반환
+
+        Returns:
+            Dict[str, Any]: 서버 상태 정보를 포함한 딕셔너리
+        """
+        status = {
+            "name": self.name,
+            "initialized": self.session is not None,
+            "config": {
+                "command": self.config.get("command", ""),
+            },
+        }
+
+        # 초기화된 경우 추가 정보
+        if self.session:
+            try:
+                tools = await self.list_tools()
+                status["tools_count"] = len(tools)
+                status["tools"] = [
+                    {"name": tool.name, "description": tool.description}
+                    for tool in tools
+                ]
+            except Exception as e:
+                status["error"] = str(e)
+
+        return status
 
     async def execute_tool(
         self,
@@ -299,6 +350,25 @@ class ChatSession:
             except Exception as e:
                 logger.warning(f"Warning during final cleanup: {e}")
 
+    async def get_servers_status(self) -> List[Dict[str, Any]]:
+        """모든 MCP 서버의 상태 정보 반환
+
+        Returns:
+            List[Dict[str, Any]]: 각 서버의 상태 정보 목록
+        """
+        status_list = []
+        for server in self.servers:
+            try:
+                server_status = await server.get_status()
+                status_list.append(server_status)
+            except Exception as e:
+                logger.error(f"{server.name} 서버 상태 확인 중 오류: {str(e)}")
+                status_list.append(
+                    {"name": server.name, "initialized": False, "error": str(e)}
+                )
+
+        return status_list
+
     async def process_llm_response(self, llm_response: str) -> str:
         """LLM 응답을 처리하고 필요한 경우 도구 호출
 
@@ -312,61 +382,99 @@ class ChatSession:
             # 전체 응답에서 JSON 부분 추출 시도
             json_obj = None
 
-            # 1. 먼저 전체 텍스트를 JSON으로 파싱 시도
-            try:
-                json_obj = json.loads(llm_response)
-                logger.info("전체 텍스트가 유효한 JSON입니다.")
-            except json.JSONDecodeError:
-                # 2. 실패하면 중괄호 기준으로 JSON 부분 추출 시도
-                start_idx = llm_response.find("{")
-                end_idx = llm_response.rfind("}") + 1
+            logger.debug(f"LLM 응답 처리 시작: {llm_response[:100]}...")
 
-                if start_idx != -1 and end_idx > start_idx:
+            # 1. JSON 블록 찾기 시도
+            json_start = llm_response.find("{")
+            json_end = llm_response.rfind("}")
+
+            if json_start != -1 and json_end > json_start:
+                potential_json = llm_response[json_start : json_end + 1]
+                logger.debug(f"잠재적 JSON 발견: {potential_json[:100]}...")
+
+                try:
+                    json_obj = json.loads(potential_json)
+                    logger.info("유효한 JSON 형식 발견")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"JSON 파싱 실패: {e}")
+
+                    # 중첩된 JSON이 있는 경우 처리 시도
                     try:
-                        json_str = llm_response[start_idx:end_idx]
-                        json_obj = json.loads(json_str)
-                        logger.info(
-                            f"텍스트에서 JSON 부분을 추출했습니다: {json_str[:50]}..."
-                        )
-                    except json.JSONDecodeError as e:
-                        logger.error(f"추출된 JSON 부분 파싱 실패: {e}")
-                else:
-                    logger.warning("JSON 객체를 찾을 수 없습니다.")
+                        # 가장 바깥쪽 중괄호 쌍 찾기
+                        depth = 0
+                        start = -1
+                        end = -1
+
+                        for i, char in enumerate(llm_response):
+                            if char == "{":
+                                if depth == 0:
+                                    start = i
+                                depth += 1
+                            elif char == "}":
+                                depth -= 1
+                                if depth == 0 and start != -1:
+                                    end = i
+                                    break
+
+                        if start != -1 and end != -1:
+                            clean_json = llm_response[start : end + 1]
+                            logger.debug(f"중첩 처리된 JSON: {clean_json[:100]}...")
+                            json_obj = json.loads(clean_json)
+                    except Exception as nested_error:
+                        logger.warning(f"중첩 JSON 파싱 시도 실패: {nested_error}")
+
             # 도구 실행
             if json_obj and "tool" in json_obj and "arguments" in json_obj:
-                logger.info(f"Executing tool: {json_obj['tool']}")
-                logger.info(f"With arguments: {json_obj['arguments']}")
+                tool_name = json_obj["tool"]
+                arguments = json_obj["arguments"]
+                logger.info(f"도구 실행: {tool_name}")
+                logger.info(f"인자: {arguments}")
 
+                # 적절한 서버 찾기
                 for server in self.servers:
                     tools = await server.list_tools()
-                    if any(tool.name == json_obj["tool"] for tool in tools):
+                    if any(tool.name == tool_name for tool in tools):
                         try:
-                            result = await server.execute_tool(
-                                json_obj["tool"], json_obj["arguments"]
-                            )
-                            if isinstance(result, dict) and "progress" in result:
-                                progress = result["progress"]
-                                total = result["total"]
-                                percentage = (progress / total) * 100
-                                logger.info(
-                                    f"Progress: {progress}/{total}"
-                                    f"({percentage:.1f}%)"
-                                )
+                            result = await server.execute_tool(tool_name, arguments)
 
-                            return f"Tool execution result: {result}"
+                            # 결과가 딕셔너리인 경우 포맷팅
+                            if isinstance(result, dict):
+                                if "progress" in result and "total" in result:
+                                    progress = result["progress"]
+                                    total = result["total"]
+                                    percentage = (progress / total) * 100
+                                    logger.info(
+                                        f"진행 상황: {progress}/{total} ({percentage:.1f}%)"
+                                    )
+
+                                # 결과를 JSON 문자열로 변환
+                                result_str = json.dumps(
+                                    result, ensure_ascii=False, indent=2
+                                )
+                                logger.info(
+                                    f"도구 실행 결과(dict): {result_str[:200]}..."
+                                )
+                                return f"Tool result: {result_str}"
+                            else:
+                                logger.info(f"도구 실행 결과: {str(result)[:200]}...")
+                                return f"Tool result: {result}"
                         except Exception as e:
-                            error_msg = f"Error executing tool: {str(e)}"
+                            error_msg = f"도구 실행 오류: {str(e)}"
                             logger.error(error_msg)
                             return error_msg
-                return f"No server found with tool: {json_obj['tool']}"
+
+                return f"도구를 실행할 수 있는 서버를 찾을 수 없습니다: {tool_name}"
 
             # JSON 객체가 없거나, tool이나 arguments가 없는 경우
-            logger.info(
-                "도구 실행 조건을 만족하지 않음(JSON 형식이 아니거나, tool이나 arguments 필드가 없음)"
-            )
+            logger.info("도구 실행 조건을 만족하지 않음")
             return llm_response
-        except json.JSONDecodeError:
+
+        except json.JSONDecodeError as json_error:
+            logger.warning(f"JSON 디코딩 오류: {json_error}")
             return llm_response
+        except Exception as e:
+            logger.error(f"도구 실행 처리 중 오류: {str(e)}", exc_info=True)
+            return f"오류 발생: {str(e)}"
 
     async def chat(
         self, message: str, session_id: str, sessions: Dict[str, List[str]]
@@ -403,7 +511,17 @@ class ChatSession:
                 "2. Keep responses concise but informative\n"
                 "3. Focus on the most relevant information\n"
                 "4. Use appropriate context from the user's question\n"
-                "5. Avoid simply repeating the raw data\n\n"
+                "5. Avoid simply repeating the raw data\n"
+                "6. You can use multiple tools in sequence if needed\n\n"
+                "Multi-tool execution strategy:\n"
+                "- If you need to run multiple tools in sequence, respond ONLY with the next tool JSON format after seeing a tool result\n"
+                "- Do NOT provide explanation text between tool calls; ONLY output the JSON format for the next tool\n"
+                "- Only after completing ALL necessary tool calls, provide your final conversational response\n"
+                "- You can use up to 5 tools in sequence if needed\n\n"
+                "For example, to use multiple tools:\n"
+                '1. First tool call (only output this JSON): {"tool":"tool1","arguments":{"param":"value"}}\n'
+                '2. After seeing tool1\'s result, if needed: {"tool":"tool2","arguments":{"param":"value"}}\n'
+                "3. After all tool results, respond conversationally\n\n"
                 "Please use only the tools that are explicitly defined above. ",
             )
             conversation = sessions[session_id]
@@ -426,41 +544,99 @@ class ChatSession:
             full_response = ""
             async for chunk in self.llm_client.get_response(messages):
                 full_response += chunk
-                # logger.debug(f"첫 응답 청크: {chunk}")
                 yield chunk
             logger.debug(f"전체 LLM 응답: {full_response}")
 
+            # 도구 실행 결과와 메시지 처리
+            current_messages = messages.copy()
+            current_response = full_response
+            max_tool_calls = 5  # 최대 도구 호출 횟수 제한
+            tool_call_count = 0
+
+            # 응답 저장
             conversation.append(f"assistant: {full_response}")
-            try:
-                logger.info("도구 실행 로직 시작...")
-                # 도구 실행 결과 가져오기
-                tool_result = await self.process_llm_response(full_response)
 
-                # 도구 실행 결과가 원본 응답과 다른 경우 (도구가 실행된 경우)
-                if tool_result != full_response:
-                    logger.info("도구가 성공적으로 실행되었습니다.")
-                    yield "\n\n도구 실행 결과를 분석 중...\n\n"
+            while tool_call_count < max_tool_calls:
+                try:
+                    # 도구 실행 로직 시작
+                    logger.info(
+                        f"도구 실행 로직 시작... (호출 {tool_call_count+1}/{max_tool_calls})"
+                    )
 
-                    # 도구 실행 결과로 새 메시지 생성
-                    messages.append({"role": "assistant", "content": full_response})
-                    messages.append({"role": "assistant", "content": tool_result})
-                    logger.debug(f"도구 실행 결과: {tool_result}")
+                    # 도구 실행 시도
+                    tool_result = await self.process_llm_response(current_response)
 
-                    # 최종 응답 생성
-                    final_response = ""
-                    async for chunk in self.llm_client.get_response(messages):
-                        final_response += chunk
-                        # logger.debug(f"최종 응답 청크: {chunk}")
-                        yield chunk
+                    # 도구 실행 결과가 원본 응답과 다른 경우 (도구가 실행된 경우)
+                    if tool_result != current_response:
+                        tool_call_count += 1
+                        logger.info(f"도구 {tool_call_count}번째 실행 완료")
+                        yield f"\n\n도구 실행 결과를 분석 중...\n\n"
 
-                    # 최종 응답 저장
-                    conversation.append(f"assistant: {final_response}")
-                    logger.info("도구 실행 결과를 바탕으로 최종 응답 생성 완료")
-                else:
-                    logger.info("도구 실행이 필요 없거나, JSON 파싱에 실패했습니다.")
-            except Exception as e:
-                logger.error(f"도구 처리 중 오류: {e}", exc_info=True)
-                yield f"\n\n도구 처리 중 오류가 발생했습니다: {str(e)}"
+                        # 도구 실행 결과로 새 메시지 추가
+                        current_messages.append(
+                            {"role": "assistant", "content": current_response}
+                        )
+                        current_messages.append(
+                            {"role": "user", "content": f"Tool result: {tool_result}"}
+                        )
+                        logger.debug(f"도구 실행 결과: {tool_result}")
+
+                        # 사용자에게 툴 실행 중임을 알림
+                        try:
+                            # JSON 파싱 시도
+                            json_start = current_response.find("{")
+                            json_end = current_response.rfind("}")
+                            if json_start != -1 and json_end > json_start:
+                                json_str = current_response[json_start : json_end + 1]
+                                json_obj = json.loads(json_str)
+                                tool_name = json_obj.get("tool", "unknown")
+                            else:
+                                tool_name = "unknown"
+                        except:
+                            tool_name = "unknown"
+
+                        yield f"\n\n[도구 실행 {tool_call_count}/{max_tool_calls}] {tool_name} 도구 실행 결과:\n"
+
+                        # 결과 미리보기 표시 (너무 길면 잘라서)
+                        result_preview = tool_result
+                        if len(result_preview) > 500:
+                            result_preview = result_preview[:500] + "... (결과 계속)"
+                        yield f"{result_preview}\n\n"
+
+                        # 다음 응답 생성
+                        next_response = ""
+                        yield "다음 단계 분석 중...\n"
+
+                        async for chunk in self.llm_client.get_response(
+                            current_messages
+                        ):
+                            next_response += chunk
+                            yield chunk
+
+                        # 응답 업데이트
+                        current_response = next_response
+                        conversation.append(f"assistant: {next_response}")
+
+                        # 응답에 도구 호출이 없으면 종료
+                        if "{" not in next_response or "}" not in next_response:
+                            logger.info("더 이상의 도구 호출이 없어 종료합니다.")
+                            break
+                    else:
+                        # 도구 실행이 필요 없으면 종료
+                        logger.info(
+                            "도구 실행이 필요 없거나, JSON 파싱에 실패했습니다."
+                        )
+                        break
+
+                except Exception as e:
+                    logger.error(f"도구 처리 중 오류: {e}", exc_info=True)
+                    yield f"\n\n도구 처리 중 오류가 발생했습니다: {str(e)}"
+                    break
+
+            # 도구 실행이 완료되었음을 사용자에게 알림
+            if tool_call_count > 0:
+                logger.info(f"총 {tool_call_count}개의 도구가 실행되었습니다.")
+                yield f"\n\n[완료] 총 {tool_call_count}개의 도구를 실행했습니다.\n\n"
 
         except Exception as e:
             logger.error(f"채팅 처리 중 오류: {e}", exc_info=True)
@@ -485,6 +661,9 @@ async def initialize_mcp_servers(
             Server(name, srv_config)
             for name, srv_config in server_config["mcpServers"].items()
         ]
+        logger.info("=" * 40)
+        logger.info(servers)
+        logger.info("=" * 40)
         logger.info(f"서버 인스턴스 생성 완료: {len(servers)}개")
 
         # create LLM client

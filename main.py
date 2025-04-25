@@ -132,6 +132,36 @@ async def get_sessions():
     return {"total_sessions": len(sessions), "sessions": session_info}
 
 
+@app.get("/api/mcp-status")
+async def get_mcp_status():
+    """
+    MCP 서버 상태 확인 API 엔드포인트
+
+    Returns:
+        Dict: MCP 서버들의 상태 정보
+    """
+    global chat_session
+
+    if not chat_session:
+        raise HTTPException(
+            status_code=503,
+            detail="MCP 서버가 초기화되지 않았습니다. 서버를 다시 시작해주세요.",
+        )
+
+    try:
+        servers_status = await chat_session.get_servers_status()
+        return {
+            "status": "ok",
+            "servers_count": len(servers_status),
+            "servers": servers_status,
+        }
+    except Exception as e:
+        logger.error(f"MCP 상태 확인 중 오류: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"MCP 상태 확인 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
 @app.post("/api/reset-chat")
 async def reset_chat(session_id: Optional[str] = Header(None)):
     """
