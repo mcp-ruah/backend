@@ -15,9 +15,7 @@ class OllamaLLM(LLMClientBase):
     model: str
     temperature: float
     max_tokens: int
-    client: AsyncClient = field(
-        default_factory=lambda: AsyncClient(host="http://localhost:11434")
-    )
+    client: AsyncClient = field(default_factory=AsyncClient)
 
     async def get_response(
         self, messages: List[Dict[str, str]]
@@ -41,20 +39,20 @@ class OllamaLLM(LLMClientBase):
             yield f"오류가 발생했습니다. 다시 시도해주세요. {str(e)}"
 
 
-# async def main():
-#     # OllamaLLM 인스턴스 생성 (필요시 model명 변경)
-#     llm = OllamaLLM(model=LLMModel.GEMMA3)
+async def main():
+    # OllamaLLM 인스턴스 생성 (필요시 model명 변경)
+    llm = OllamaLLM(model=LLMModel.GEMMA3_4B.value)
 
-#     # 테스트 메시지
-#     messages = [
-#         {"role": "system", "content": "You are a helpful assistant."},
-#         {"role": "user", "content": "한국의 수도는 어디야?"},
-#     ]
+    # 테스트 메시지
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "한국의 수도는 어디야?"},
+    ]
 
-#     print("Ollama LLM 응답:")
-#     async for chunk in llm.get_response(messages):
-#         print(chunk, end="", flush=True)
+    print("Ollama LLM 응답:")
+    async for chunk in llm.get_response(messages):
+        print(chunk, end="", flush=True)
 
 
-# if __name__ == "__main__":
-#     asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
