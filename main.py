@@ -2,17 +2,18 @@ import sys
 import uvicorn
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, HTTPException, Body, Cookie, Header, Query
+from fastapi import FastAPI, HTTPException, Request, Body, Cookie, Header, Query
 from fastapi.responses import StreamingResponse
 from typing import List, Optional, AsyncGenerator, Dict
 import uuid
 from pydantic import BaseModel
 from schema import ChatRequest
-from server import initialize_mcp_servers, ChatSession
-from contextlib import asynccontextmanager
+from chat import ChatSession
 from utils.logger import logger
 import json
 import subprocess
+from lifecycle import lifespan
+from llms import get_llm_client
 
 
 # Windows에서 ProactorEventLoop 설정
@@ -24,44 +25,10 @@ else:
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
-# 전역 변수 (lifespan 외부에서 접근 가능하도록)
-chat_session: Optional[ChatSession] = None
+# 세션 임시 저장
 sessions: Dict[str, List[str]] = {}
 
-
-# lifespan context manager
-@asynccontextmanager
-async def lifspan(app: FastAPI):
-    """
-    Application Lifespan Event Handler
-    시작시 실행되는 코드는 yield 전에 실행
-    종료시 실행되는 코드는 yield 후에 배치
-    """
-    global chat_session
-
-    try:
-        # MCP 서버 및 채팅 세션 초기화
-        chat_session = await initialize_mcp_servers()
-        if not chat_session:
-            logger.error("채팅 세션 초기화 실패")
-        else:
-            logger.info("mcp 서버 초기화 완료")
-
-    except Exception as e:
-        logger.error(f"시작 이벤트 중 오류 : {e}")
-
-    yield  # 이 지점에서 FastAPI 어플리케이션 실행
-
-    # 종료시
-    if chat_session:
-        try:
-            await chat_session.cleanup_servers()
-            logger.info("MCP 서버 정리 완료")
-        except Exception as e:
-            logger.error(f"서버 정리 중 오류 : {e}")
-
-
-app = FastAPI(lifespan=lifspan)
+app = FastAPI(lifespan=lifespan)
 
 
 # CORS 설정
@@ -83,24 +50,31 @@ app.add_middleware(
 
 
 @app.post("/api/chat")
-async def api_chat(request: ChatRequest):
+async def api_chat(request: Request, chat_req: ChatRequest):
     """
     채팅 API 엔드포인트
     """
-    global chat_session, sessions
+    global sessions
+    session_id = chat_req.session_id or str(uuid.uuid4())
+    message = chat_req.message
 
-    # 세션 ID 확인/생성
-    session_id = request.session_id
-    # logger.debug(f"\n\n세션 ID: {session_id}\n\n")
-    if not session_id:
-        session_id = str(uuid.uuid4())
-
-    # 세션이 없으면 새로 생성
+    config = request.app.state.config
     if session_id not in sessions:
         logger.info(f"세션 ID {session_id}에 대한 새 대화 기록 생성")
         sessions[session_id] = []
 
-    # 채팅 세션 확인
+    # 사용자가 선택한 모델명에 따라 LLM 클라이언트 생성
+    llm_client = get_llm_client(
+        model=chat_req.model,
+        temperature=chat_req.temperature,
+        max_tokens=chat_req.max_tokens,
+        config=config,
+    )
+
+    # 기존 chat_session 인스턴스를 새로 만듦 (서버 리스트는 기존대로)
+    chat_session = ChatSession(
+        servers=request.app.state.chat_session.servers, llm_client=llm_client
+    )
     if not chat_session:
         return {
             "response": "시스템이 초기화되지 않았습니다. 나중에 다시 시도해 주세요.",
@@ -109,7 +83,7 @@ async def api_chat(request: ChatRequest):
         }
 
     async def generate():
-        async for chunk in chat_session.chat(request.message, session_id, sessions):
+        async for chunk in chat_session.chat(message, session_id, sessions):
             yield chunk
 
     return StreamingResponse(generate(), media_type="text/plain")
@@ -133,14 +107,14 @@ async def get_sessions():
 
 
 @app.get("/api/mcp-status")
-async def get_mcp_status():
+async def get_mcp_status(request: Request):
     """
     MCP 서버 상태 확인 API 엔드포인트
 
     Returns:
         Dict: MCP 서버들의 상태 정보
     """
-    global chat_session
+    chat_session = request.app.state.chat_session
 
     if not chat_session:
         raise HTTPException(

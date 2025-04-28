@@ -1,0 +1,47 @@
+분석 및 설계
+
+1. 문제의 근본 원인
+현재 LLMClient는 Anthropic API에만 의존하고 있어, Ollama 등 다른 LLM 백엔드로 쉽게 교체할 수 없습니다.
+
+2. 개선 방향
+LLM 클라이언트 추상화(ABC 또는 프로토콜) 도입
+Anthropic, Ollama 각각의 LLMClient 구현
+설정(config) 또는 파라미터로 사용할 LLM 종류를 선택
+
+변경 계획
+
+LLMClient 추상화
+
+LLMClientBase 추상 클래스(ABC) 생성, get_response만 정의
+AnthropicLLMClient, OllamaLLMClient 구현
+기존 코드는 AnthropicLLMClient로 이동
+
+Ollama용 OllamaLLMClient 추가 (httpx로 REST API 호출, 스트리밍 지원)
+ChatSession, initialize_mcp_servers 수정
+llm_type(예: "anthropic", "ollama")에 따라 적절한 LLMClient를 생성
+config/mcp_servers.json 또는 .env에서 LLM 종류와 필요한 정보(모델명, 엔드포인트 등) 읽기
+
+
+
+
+기존 LLMClient 사용 부분은 LLMClientBase 타입으로만 사용
+
+
+
+backend/
+├── config/           # 환경설정, 환경변수, 공통 설정 관련
+│   └── config.py
+├── mcp/              # MCP 서버 및 도구 관련
+│   ├── mcp_server.py
+│   └── tool.py
+├── llm/              # LLM 클라이언트 관련 (Anthropic, Ollama 등)
+│   ├── base.py
+│   ├── anthropic.py
+│   └── ollama.py
+├── chat/             # 채팅 세션, 대화 관리
+│   └── chat_session.py
+├── utils/            # 공통 유틸리티, 로거 등
+│   └── logger.py
+├── server.py         # 진입점(조립/초기화만 담당)
+├── main.py           # FastAPI 엔트리포인트
+└── ...               # 기타 기존 파일
