@@ -7,8 +7,10 @@ from enum import Enum
 
 class LLMModel(Enum):
     GEMMA3_4B = "gemma3:4b"
+    GEMMA3_12B = "gemma3:12b"
     LLAMA_3_2 = "llama3.2:3b"
     CLAUDE_3_7_SONNET = "claude-3-7-sonnet-20250219"
+    QWEN3_14B = "qwen3:14b"
     GPT_4O = "gpt-4o"
     TEMPERATURE = 0.76
     MAX_TOKENS = 4096

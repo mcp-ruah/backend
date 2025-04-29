@@ -18,7 +18,6 @@ async def lifespan(app: FastAPI):
     종료시 실행되는 코드는 yield 후에 배치
     """
     config = Configuration()
-    print(f"\napi_key: {config.api_key}\n")
     app.state.config = config
     initialized_servers = []
     try:

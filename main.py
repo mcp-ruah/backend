@@ -16,13 +16,10 @@ from lifecycle import lifespan
 from llms import get_llm_client
 
 
-# Windows에서 ProactorEventLoop 설정
+# Windows에서만 ProactorEventLoop 설정
 if sys.platform == "win32":
     from asyncio import WindowsSelectorEventLoopPolicy, WindowsProactorEventLoopPolicy
-
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-else:
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 # 세션 임시 저장

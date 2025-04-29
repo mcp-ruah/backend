@@ -173,7 +173,7 @@ class ChatSession:
                 "IMPORTANT: When you need to use a tool, you must ONLY respond with "
                 "the exact JSON object format below, nothing else:\n"
                 "{\n"
-                '  "tool" : "tool-name"\n'
+                '  "tool" : "tool-name",\n'
                 '  "arguments" : {\n'
                 '       "argument-name" : "value",\n'
                 "   }\n"
@@ -194,7 +194,7 @@ class ChatSession:
                 '1. First tool call (only output this JSON): {"tool":"tool1","arguments":{"param":"value"}}\n'
                 '2. After seeing tool1\'s result, if needed: {"tool":"tool2","arguments":{"param":"value"}}\n'
                 "3. After all tool results, respond conversationally\n\n"
-                "Please use only the tools that are explicitly defined above. "
+                "Please use only the tools that are explicitly defined above. Answer should be in Korean."
             )
             conversation = sessions[session_id]
 
@@ -229,18 +229,22 @@ class ChatSession:
 
             # 첫 응답에 도구 호출이 있는지 검사
             def has_tool_call(resp: str) -> bool:
+                logger.debug(f"첫 응답에 도구 호출이 있는지 검사: {resp}")
+                resp = resp.replace("```json", "").replace("```", "").strip()
                 json_start = resp.find("{")
                 json_end = resp.rfind("}")
                 if json_start != -1 and json_end > json_start:
                     try:
                         json_obj = json.loads(resp[json_start : json_end + 1])
                         return "tool" in json_obj and "arguments" in json_obj
-                    except Exception:
+                    except Exception as e:
+                        logger.error(f"JSON 파싱 오류: {str(e)}")
                         return False
                 return False
 
             # 도구 호출이 없으면 바로 사용자에게 응답
             if not has_tool_call(current_response):
+                logger.debug(f"도구 없음")
                 yield current_response
                 return
 
