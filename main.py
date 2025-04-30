@@ -81,9 +81,10 @@ async def api_chat(request: Request, chat_req: ChatRequest):
 
     async def generate():
         async for chunk in chat_session.chat(message, session_id, sessions):
+            # 줄바꿈 문자 변환 없이 그대로 전달 (프론트엔드에서 처리)
             yield chunk
 
-    return StreamingResponse(generate(), media_type="text/plain")
+    return StreamingResponse(generate(), media_type="text/markdown")
 
 
 @app.get("/api/sessions")
