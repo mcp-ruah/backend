@@ -163,7 +163,7 @@ class ChatSession:
                 "</tool_call>\n\n"
                 "3. Your final response to the user should be provided inside <answer>...</answer> tags\n\n"
                 "You can repeat this thinking-tool call-answer cycle multiple times if necessary.\n"
-                "The flow can repeat as: thinking → tool call → thinking → answer, or thinking → answer.\n\n"
+                "The flow can repeat as: thinking → tool call → thinking → answer (whatever if you need), or thinking → answer.\n\n"
                 "Multi-tool execution strategy:\n"
                 "- If you need to run multiple tools in sequence, analyze the result from the first tool in <think> tags\n"
                 "- Then decide if another tool call is needed or provide your final answer in <answer> tags\n"

@@ -1,7 +1,7 @@
 import shutil, uuid, httpx, json, os, asyncio, subprocess
 from dataclasses import dataclass, field
 from contextlib import AsyncExitStack
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from utils.logger import logger
@@ -17,6 +17,100 @@ class Server:
     session: Optional[ClientSession] = None
     _cleanup_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     exit_stack: AsyncExitStack = field(default_factory=AsyncExitStack)
+
+    @staticmethod
+    async def get_running_containers() -> List[str]:
+        """실행 중인 도커 컨테이너 이름 목록 반환"""
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return result.stdout.strip().split("\n") if result.stdout.strip() else []
+        except Exception as e:
+            logger.warning(f"도커 컨테이너 상태 확인 중 오류: {str(e)}")
+            return []
+
+    @staticmethod
+    async def stop_container(container_name: str) -> bool:
+        """도커 컨테이너 종료"""
+        try:
+            result = subprocess.run(
+                ["docker", "stop", container_name],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            logger.info(f"도커 컨테이너 '{container_name}' 종료 성공")
+            return True
+        except Exception as e:
+            logger.error(f"도커 컨테이너 '{container_name}' 종료 중 오류: {str(e)}")
+            return False
+
+    @staticmethod
+    def get_container_name_from_config(server_name: str, config: Dict[str, Any]) -> str:
+        """서버 설정에서 컨테이너 이름 추출"""
+        if config.get("command") == "docker" and config.get("args"):
+            args = config.get("args", [])
+            if "--name" in args:
+                idx = args.index("--name")
+                if idx + 1 < len(args):
+                    return args[idx + 1]
+        # 기본 이름 형식 반환
+        return f"mcp-{server_name}"
+
+    @staticmethod
+    async def get_server_status_list(
+        server_configs: Dict[str, Dict[str, Any]],
+        running_servers_status: List[Dict[str, Any]],
+        running_server_names: List[str],
+    ) -> List[Dict[str, Any]]:
+        """모든 서버의 상태 목록 생성"""
+        all_servers_status = []
+        running_containers = await Server.get_running_containers()
+
+        for server_name, srv_config in server_configs.items():
+            # 컨테이너 이름 확인
+            container_name = Server.get_container_name_from_config(
+                server_name, srv_config
+            )
+
+            # ChatSession에 있는 실행 중인 서버라면 상세 정보 포함
+            if server_name in running_server_names:
+                for running_server in running_servers_status:
+                    if running_server["name"] == server_name:
+                        all_servers_status.append(running_server)
+                        break
+            # 도커에는 실행 중이지만 ChatSession에 없는 경우
+            elif container_name in running_containers:
+                all_servers_status.append(
+                    {
+                        "name": server_name,
+                        "initialized": False,
+                        "status": "external_running",  # 외부에서 실행 중이지만 ChatSession에 연결되지 않음
+                        "container_name": container_name,
+                        "config": {
+                            "command": srv_config.get("command", ""),
+                        },
+                        "message": "도커에서 실행 중이지만 백엔드에 연결되지 않았습니다. 재시작하세요.",
+                    }
+                )
+            # 실행 중이 아니라면 기본 정보만 포함
+            else:
+                all_servers_status.append(
+                    {
+                        "name": server_name,
+                        "initialized": False,
+                        "status": "stopped",
+                        "config": {
+                            "command": srv_config.get("command", ""),
+                        },
+                    }
+                )
+
+        return all_servers_status
 
     async def initialize(self) -> None:
         """서버 초기화 및 세션 설정"""
@@ -112,6 +206,7 @@ class Server:
         status = {
             "name": self.name,
             "initialized": self.session is not None,
+            "status": "running" if self.session is not None else "stopped",
             "config": {
                 "command": self.config.get("command", ""),
             },
@@ -182,7 +277,7 @@ class Server:
                 # MCP 서버 종료
                 if self.config.get("command") == "docker":
                     args = self.config.get("args", [])
-                    container_name = f"mcp-{self.name}"
+                    container_name = self.name  # 기본 이름은 서버 이름 그대로 사용
                     if "--name" in args:
                         idx = args.index("--name")
                         if idx + 1 < len(args):
