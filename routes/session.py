@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from typing import Dict, List
+from utils.logger import logger
 
 router = APIRouter(prefix="/api", tags=["session"])
 

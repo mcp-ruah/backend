@@ -15,16 +15,16 @@ class ChatSession:
     servers: list[Server]
     llm_client: Optional[LLMClientBase] = None
 
-    async def cleanup_servers(self) -> None:
-        """모든 서버 세션 정리 (순차적으로)"""
-        for server in self.servers:
-            try:
-                await server.cleanup()
-            except asyncio.CancelledError as ce:
-                logger.info(f"서버 정리 중 작업이 취소되었습니다: {server.name}")
-                # CancelledError는 무시하고 다음 서버 정리 진행
-            except Exception as e:
-                logger.warning(f"Warning during final cleanup: {e}")
+    # async def cleanup_servers(self) -> None:
+    #     """모든 서버 세션 정리 (순차적으로)"""
+    #     for server in self.servers:
+    #         try:
+    #             await server.cleanup()
+    #         except asyncio.CancelledError as ce:
+    #             logger.info(f"서버 정리 중 작업이 취소되었습니다: {server.name}")
+    #             # CancelledError는 무시하고 다음 서버 정리 진행
+    #         except Exception as e:
+    #             logger.warning(f"Warning during final cleanup: {e}")
 
     async def get_servers_status(self) -> List[Dict[str, Any]]:
         """모든 MCP 서버의 상태 정보 반환

@@ -13,11 +13,10 @@ from config import Configuration
 # 라우터 임포트
 from routes import chat_router, server_router, session_router
 
-# Windows에서만 ProactorEventLoop 설정
+# Windows에서 이벤트 루프 설정
 if sys.platform == "win32":
-    from asyncio import WindowsSelectorEventLoopPolicy, WindowsProactorEventLoopPolicy
-
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # ProactorEventLoop를 기본으로 사용
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 @asynccontextmanager
@@ -48,13 +47,15 @@ async def lifespan(app: FastAPI):
         app.state.chat_session = None
         yield
 
-    # 종료시 실행 중인 서버들 정리
-    if app.state.chat_session and app.state.chat_session.servers:
-        try:
-            await app.state.chat_session.cleanup_servers()
-            logger.info("MCP server cleanup success")
-        except Exception as e:
-            logger.error(f"server cleanup failed: {e}")
+    # # 종료시 실행 중인 서버들 정리
+    # if app.state.chat_session and app.state.chat_session.servers:
+    #     try:
+    #         await app.state.chat_session.cleanup_servers()
+    #         logger.info("MCP server cleanup success")
+    #     except asyncio.CancelledError as ce:
+    #         logger.info(f"서버 정리 중 작업이 취소되었습니다")
+    #     except Exception as e:
+    #         logger.error(f"server cleanup failed: {e}")
 
 
 app = FastAPI(lifespan=lifespan)

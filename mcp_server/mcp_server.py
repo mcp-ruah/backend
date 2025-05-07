@@ -145,14 +145,6 @@ class Server:
                 env=self.config.get("env"),
             )
 
-        # if self.config.get("env"):
-        #     logger.info("=" * 40)
-        #     logger.info(f"서버 {self.name}의 환경 변수:")
-        #     logger.info(self.config["env"])
-        #     logger.info("명령어 인자:")
-        #     logger.info(server_params.args)
-        #     logger.info("=" * 40)
-
         try:
             stdio_transport = await self.exit_stack.enter_async_context(
                 stdio_client(server_params)
