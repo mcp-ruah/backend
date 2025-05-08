@@ -22,16 +22,25 @@ class Server:
     async def get_running_containers() -> List[str]:
         """실행 중인 도커 컨테이너 이름 목록 반환"""
         try:
-            result = subprocess.run(
-                ["docker", "ps", "--format", "{{.Names}}"],
-                capture_output=True,
-                text=True,
-                check=True,
+            process = await asyncio.create_subprocess_exec(
+                "docker",
+                "ps",
+                "--format",
+                "{{.Names}}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            return result.stdout.strip().split("\n") if result.stdout.strip() else []
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                logger.error(f"도커 명령어 실행 실패: {stderr.decode()}")
+                raise Exception(f"도커 명령어 실행 실패: {stderr.decode()}")
+
+            output = stdout.decode().strip()
+            return output.split("\n") if output else []
         except Exception as e:
-            logger.warning(f"도커 컨테이너 상태 확인 중 오류: {str(e)}")
-            return []
+            logger.error(f"도커 컨테이너 상태 확인 중 오류: {str(e)}")
+            raise  # 에러를 상위로 전파
 
     @staticmethod
     async def stop_container(container_name: str) -> bool:

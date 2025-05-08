@@ -8,7 +8,7 @@ from utils.logger import logger
 from chat import ChatSession
 from contextlib import asynccontextmanager
 from config import Configuration
-
+from mcp_server.mcp_server import Server
 
 # 라우터 임포트
 from routes import chat_router, server_router, session_router
@@ -21,11 +21,6 @@ if sys.platform == "win32":
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Application Lifespan Event Handler
-    시작시 실행되는 코드는 yield 전에 실행
-    종료시 실행되는 코드는 yield 후에 배치
-    """
     config = Configuration()
     app.state.config = config
 
@@ -34,28 +29,23 @@ async def lifespan(app: FastAPI):
         server_config = config.load_config("mcp_servers.json")
         logger.info("config file load success")
 
-        # 빈 서버 리스트로 ChatSession 생성 (초기에는 어떤 서버도 시작하지 않음)
+        # 빈 서버 리스트로 ChatSession 생성
         chat_session = ChatSession([])
         app.state.chat_session = chat_session
-        logger.info(
-            "빈 MCP ChatSession 생성 완료 - 서버는 API를 통해 개별적으로 시작해야 합니다"
-        )
 
         yield
     except Exception as e:
         logger.error(f"start event failed: {e}")
-        app.state.chat_session = None
-        yield
+        raise
 
-    # # 종료시 실행 중인 서버들 정리
-    # if app.state.chat_session and app.state.chat_session.servers:
-    #     try:
-    #         await app.state.chat_session.cleanup_servers()
-    #         logger.info("MCP server cleanup success")
-    #     except asyncio.CancelledError as ce:
-    #         logger.info(f"서버 정리 중 작업이 취소되었습니다")
-    #     except Exception as e:
-    #         logger.error(f"server cleanup failed: {e}")
+    # # 종료
+    # try:
+    #     # await app.state.chat_session.cleanup_servers()
+    #     logger.info("MCP server cleanup success")
+    # except asyncio.CancelledError as ce:
+    #     logger.info(f"작업이 취소되었습니다")
+    # except Exception as e:
+    #     logger.error(f"server cleanup failed: {e}")
 
 
 app = FastAPI(lifespan=lifespan)

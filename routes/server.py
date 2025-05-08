@@ -6,25 +6,60 @@ from chat import ChatSession
 
 router = APIRouter(prefix="/api", tags=["server"])
 
-
 @router.get("/mcp-status")
 async def get_mcp_status(request: Request):
-    server_config, chat_session = await _get_server_config(request)
     try:
-        running_servers_status = await chat_session.get_servers_status()
-        running_server_names = [server["name"] for server in running_servers_status]
-        all_servers_status = await Server.get_server_status_list(
-            server_config["mcpServers"], running_servers_status, running_server_names
-        )
-        return {
-            "status": "ok",
-            "servers_count": len(all_servers_status),
-            "servers": all_servers_status,
-        }
-    except Exception as e:
-        logger.error(f"MCP 상태 조회 중 오류: {str(e)}")
-        raise ServerError(str(e))
+        # 1. 설정 로드 확인
+        logger.info("MCP 상태 조회 시작")
+        server_config, chat_session = await _get_server_config(request)
+        logger.info(f"서버 설정 로드됨: {server_config}")
 
+        # 2. chat_session 상태 확인
+        if not chat_session:
+            logger.error("ChatSession이 None입니다")
+            return {"status": "error", "message": "ChatSession이 초기화되지 않았습니다"}
+
+        # 3. 실행 중인 서버 상태 확인
+        try:
+            running_servers_status = await chat_session.get_servers_status()
+            logger.info(f"실행 중인 서버 상태: {running_servers_status}")
+
+            running_server_names = [server["name"] for server in running_servers_status]
+            logger.info(f"실행 중인 서버 이름: {running_server_names}")
+
+            # 4. 도커 컨테이너 상태 확인
+            running_containers = await Server.get_running_containers()
+            logger.info(f"실행 중인 도커 컨테이너: {running_containers}")
+
+            # 5. 전체 서버 상태 목록 생성
+            all_servers_status = await Server.get_server_status_list(
+                server_config["mcpServers"],
+                running_servers_status,
+                running_server_names,
+            )
+            logger.info(f"전체 서버 상태: {all_servers_status}")
+
+            return {
+                "status": "ok",
+                "servers_count": len(all_servers_status),
+                "servers": all_servers_status,
+            }
+        except Exception as e:
+            logger.error(f"서버 상태 조회 중 오류: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "error": str(e),
+                "servers_count": 0,
+                "servers": [],
+                "message": f"서버 상태 조회 중 오류가 발생했습니다: {str(e)}",
+            }
+    except Exception as e:
+        logger.error(f"MCP 상태 조회 중 최상위 오류: {str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "MCP 상태 조회 중 오류가 발생했습니다",
+        }
 
 @router.post("/server/{server_name}/start")
 async def start_server(server_name: str, request: Request):
