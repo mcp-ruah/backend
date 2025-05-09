@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException
 from typing import Dict, Tuple, Any, Optional
-from utils.logger import logger
+from utils import logger
 from mcp_server import Server
 from chat import ChatSession
 
@@ -37,7 +37,7 @@ async def get_mcp_status(request: Request):
                 running_servers_status,
                 running_server_names,
             )
-            logger.info(f"전체 서버 상태: {all_servers_status}")
+            # logger.info(f"전체 서버 상태: {all_servers_status}")
 
             return {
                 "status": "ok",

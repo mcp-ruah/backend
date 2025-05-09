@@ -1,15 +1,17 @@
-from typing import Any, Optional, Dict, List, AsyncGenerator, Type, TypeVar
+from typing import Any, Optional, Dict, List, Type, TypeVar
 from pydantic import BaseModel
 from dataclasses import dataclass, field
 
-from utils.logger import logger
+from utils import logger
 from llms.base import LLMClientBase
 from ollama import AsyncClient
 import asyncio
 from config import LLMModel
+from fastapi import UploadFile
 
 # Pydantic 모델 타입 변수 정의
 T = TypeVar("T", bound=BaseModel)
+
 
 @dataclass
 class OllamaLLM(LLMClientBase):
@@ -21,17 +23,19 @@ class OllamaLLM(LLMClientBase):
     client: AsyncClient = field(default_factory=AsyncClient)
     conversation_history: List[Dict[str, str]] = field(default_factory=list)
 
-    async def get_response(
-        self, messages: List[Dict[str, str]]
-    ) -> AsyncGenerator[str, None]:
+    async def stream_chat(self, system_prompt, messages):
         """Ollama LLM에서 스트리밍 응답을 비동기로 가져옴"""
         try:
             print(f"messages : \n\n{messages}\n\n")
+            full_messages = []
+            if system_prompt:
+                full_messages.append({"role": "system", "content": system_prompt})
+            full_messages.extend(messages)
 
             # Ollama AsyncClient로 스트리밍 호출
             async for chunk in await self.client.chat(
                 model=self.model,
-                messages=messages,
+                messages=full_messages,
                 stream=True,
             ):
                 if "message" in chunk and "content" in chunk["message"]:
@@ -41,6 +45,10 @@ class OllamaLLM(LLMClientBase):
         except Exception as e:
             logger.error(f"Ollama LLM 응답 가져오기 실패: {str(e)}")
             yield f"오류가 발생했습니다. 다시 시도해주세요. {str(e)}"
+
+    async def build_user_message(
+        self, text: str | None, file: UploadFile | None
+    ) -> dict: ...
 
 
 async def main():
@@ -54,7 +62,7 @@ async def main():
     ]
 
     print("Ollama LLM 응답:")
-    async for chunk in llm.get_response(messages):
+    async for chunk in llm.stream_chat(messages):
         print(chunk, end="", flush=True)
 
 

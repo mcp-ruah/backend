@@ -12,7 +12,7 @@ Anthropic, Ollama 각각의 LLMClient 구현
 
 LLMClient 추상화
 
-LLMClientBase 추상 클래스(ABC) 생성, get_response만 정의
+LLMClientBase 추상 클래스(ABC) 생성, stream_chat만 정의
 AnthropicLLMClient, OllamaLLMClient 구현
 기존 코드는 AnthropicLLMClient로 이동
 

@@ -4,7 +4,7 @@ from contextlib import AsyncExitStack
 from typing import Optional, Dict, Any, List
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from utils.logger import logger
+from utils import logger
 
 
 @dataclass

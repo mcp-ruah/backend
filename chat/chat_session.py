@@ -1,12 +1,13 @@
 import json
-from utils.logger import logger
+from prompt.system_prompt import SystemPrompt, PROMPT_TEXT
+from utils import logger
 from typing import List, Dict, Any, AsyncGenerator, Optional
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from mcp_server import Server
 from llms import LLMClientBase
 import asyncio
-
+from fastapi import File
 
 @dataclass
 class ChatSession:
@@ -64,7 +65,7 @@ class ChatSession:
                 tool_call_content = llm_response[
                     tool_call_start + len("<tool_call>") : tool_call_end
                 ].strip()
-                logger.debug(f"도구 호출 내용: {tool_call_content[:100]}...")
+                # logger.debug(f"도구 호출 내용: {tool_call_content[:100]}...")
 
                 # JSON 파싱
                 try:
@@ -130,7 +131,11 @@ class ChatSession:
             return f"오류 발생: {str(e)}"
 
     async def chat(
-        self, message: str, session_id: str, sessions: Dict[str, List[str]]
+        self,
+        user_content: Any,
+        session_id: str,
+        sessions: Dict[str, List[str]],
+        sys_prompt_id: SystemPrompt = SystemPrompt.WITH_TOOLS,
     ) -> AsyncGenerator[str, None]:
         """메인 채팅 세션 handler"""
         try:
@@ -146,34 +151,13 @@ class ChatSession:
 
             tools_description = "\n".join([tool.format_for_llm() for tool in all_tools])
 
-            system_message = (
-                "You are a helpful assistant with access to these tools: \n\n"
-                f"{tools_description}\n"
-                "Choose the appropriate tool based on the user's question in sequential thinking.\n\n"
-                "You should structure your responses as follows:\n"
-                "1. Think through your reasoning process inside <think>...</think> tags\n"
-                "2. If you need to use a tool, respond with the exact JSON object inside <tool_call> tags:\n"
-                "<tool_call>\n"
-                "{\n"
-                '  "tool" : "tool-name",\n'
-                '  "arguments" : {\n'
-                '       "argument-name" : "value",\n'
-                "   }\n"
-                "}\n"
-                "</tool_call>\n\n"
-                "3. Your final response to the user should be provided inside <answer>...</answer> tags\n\n"
-                "You can repeat this thinking-tool call-answer cycle multiple times if necessary.\n"
-                "The flow can repeat as: thinking → tool call → thinking → answer (whatever if you need), or thinking → answer.\n\n"
-                "Multi-tool execution strategy:\n"
-                "- If you need to run multiple tools in sequence, analyze the result from the first tool in <think> tags\n"
-                "- Then decide if another tool call is needed or provide your final answer in <answer> tags\n"
-                "- You can use up to 10 tools in sequence if needed\n\n"
-                "Please use only the tools that are explicitly defined above. Answer should be in Korean and markdown format. "
+            system_message = PROMPT_TEXT[sys_prompt_id].format(
+                tools_description=tools_description
             )
             conversation = sessions[session_id]
 
-            messages = [{"role": "system", "content": system_message}]
-
+            # messages = [{"role": "system", "content": system_message}]
+            messages = []
             for msg in conversation:
                 messages.append(
                     {
@@ -183,8 +167,8 @@ class ChatSession:
                 )
 
             # add new user message
-            messages.append({"role": "user", "content": message})
-            conversation.append(f"user: {message}")
+            messages.append({"role": "user", "content": user_content})
+            conversation.append(f"user: {user_content}")
 
             # 도구 호출 여부를 검사하는 함수
             def has_tool_call(resp: str) -> bool:
@@ -206,7 +190,7 @@ class ChatSession:
 
             # LLM 첫 응답 스트리밍
             response_chunks = []
-            async for chunk in self.llm_client.get_response(messages):
+            async for chunk in self.llm_client.stream_chat(system_message, messages):
                 yield chunk
                 response_chunks.append(chunk)
 
@@ -247,7 +231,7 @@ class ChatSession:
 
                         # 다음 응답 생성 및 직접 스트리밍
                         response_chunks = []
-                        async for chunk in self.llm_client.get_response(
+                        async for chunk in self.llm_client.stream_chat(
                             current_messages
                         ):
                             yield chunk
