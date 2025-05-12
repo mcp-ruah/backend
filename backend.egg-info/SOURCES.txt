@@ -10,11 +10,13 @@ chat/chat_session.py
 config/__init__.py
 config/config.py
 llms/__init__.py
-llms/anthropic_llm.py
 llms/base.py
-llms/factory.py
-llms/ollama_llm.py
-llms/openai_llm.py
+llms/client_factory.py
+llms/llm_anthropic.py
+llms/llm_ollama.py
+llms/llm_openai.py
 mcp_server/__init__.py
 mcp_server/mcp_server.py
+utils/__init__.py
+utils/convert_img.py
 utils/logger.py

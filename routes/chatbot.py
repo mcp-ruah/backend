@@ -7,7 +7,7 @@ from chat import ChatSession
 from utils import logger
 from llms import get_llm_client, get_client
 from fastapi import File, UploadFile, Form
-from backend.utils.convert_img import image_variation
+from utils.convert_img import image_variation
 from config import LLMModel
 
 router = APIRouter(prefix="/api", tags=["chatbot"])

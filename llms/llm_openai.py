@@ -58,7 +58,8 @@ class OpenAILLM(LLMClientBase):
         self, text: str | None, file: UploadFile | None
     ) -> Any:
         if not file:
-            return text
+            # return text
+            return {"type": "text", "text": text}
         try:
             img_bytes = await file.read()
 
@@ -67,10 +68,12 @@ class OpenAILLM(LLMClientBase):
             )
             img_url = await image_variation(file.filename, img_bytes, file.content_type)
 
-            return [
+            text_with_image = [
                 {"type": "text", "text": text},
                 {"type": "image_url", "image_url": {"url": img_url}},
             ]
+            logger.info(f"text_with_image : {text_with_image}")
+            return text_with_image
         except Exception as e:
             logger.error(f"이미지 처리 중 오류: {str(e)}")
             return [{"type": "text", "text": text}]

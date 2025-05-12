@@ -28,7 +28,12 @@ class OllamaLLM(LLMClientBase):
             full_messages = []
             if system_prompt:
                 full_messages.append({"role": "system", "content": system_prompt})
+            # 메시지 형식을 확인하고 변환
+            # for msg in messages :
+                # if msg['content']가 딕셔너리라면, 텍스트 부분으로 변환
+
             full_messages.extend(messages)
+            logger.info(f"full_messages : {full_messages}")
 
             # Ollama AsyncClient로 스트리밍 호출
             async for chunk in await self.client.chat(
@@ -54,9 +59,11 @@ class OllamaLLM(LLMClientBase):
         user_message = {"role": "user", "content": text or ""}
 
         if not file:
-            return user_message
+            logger.debug(f"text type : {type(text)}")
+            logger.info(f"user_message : {text}")
+            return text
         try:
-
+            logger.info(f"file : {file}")
             img_bytes = await file.read()
 
             import tempfile
@@ -74,7 +81,7 @@ class OllamaLLM(LLMClientBase):
 
             # content는 그대로 유지하고 images 필드 추가
             user_message["images"] = [temp_img_path]
-
+            logger.info(f"user_message : {user_message}")
             return user_message
         except Exception as e:
             logger.error(f"이미지 처리 중 오류: {str(e)}")
