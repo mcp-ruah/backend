@@ -10,9 +10,6 @@ import asyncio
 from config import LLMModel
 from fastapi import UploadFile
 
-# Pydantic 모델 타입 변수 정의
-T = TypeVar("T", bound=BaseModel)
-
 
 @dataclass
 class OllamaLLM(LLMClientBase):
@@ -38,6 +35,8 @@ class OllamaLLM(LLMClientBase):
                 model=self.model,
                 messages=full_messages,
                 stream=True,
+                # temperature=self.temperature,
+                # num_predict=self.max_tokens,  # max_tokens 대신 num_predict 사용
             ):
                 if "message" in chunk and "content" in chunk["message"]:
                     content = chunk["message"]["content"]
@@ -52,8 +51,10 @@ class OllamaLLM(LLMClientBase):
     ) -> dict:
         """텍스트와 이미지를 Ollama API 형식(base64)으로 변환"""
 
+        user_message = {"role": "user", "content": text or ""}
+
         if not file:
-            return text
+            return user_message
         try:
 
             img_bytes = await file.read()
@@ -71,16 +72,14 @@ class OllamaLLM(LLMClientBase):
             with open(temp_img_path, "wb") as f:
                 f.write(img_bytes)
 
-            # Ollama 형식으로 메시지 구성 (이미지 경로 전달)
-            return {
-                "role": "user",
-                "content": text or "",
-                "images": [temp_img_path],  # 이미지 경로 전달
-            }
+            # content는 그대로 유지하고 images 필드 추가
+            user_message["images"] = [temp_img_path]
+
+            return user_message
         except Exception as e:
             logger.error(f"이미지 처리 중 오류: {str(e)}")
-            # 오류 발생 시 텍스트만 반환
-            return {"role": "user", "content": text or ""}
+            # 오류 발생 시 기본 메시지 반환
+            return user_message
 
 
 async def main():

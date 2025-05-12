@@ -12,9 +12,6 @@ import asyncio
 from config import LLMModel
 from fastapi import UploadFile
 
-# Pydantic 모델 타입 변수 정의
-T = TypeVar("T", bound=BaseModel)
-
 
 @dataclass
 class OpenAILLM(LLMClientBase):
