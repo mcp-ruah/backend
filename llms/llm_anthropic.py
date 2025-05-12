@@ -52,7 +52,7 @@ class AnthropicLLM(LLMClientBase):
 
     async def build_user_message(self, text: str, file: UploadFile | None) -> Any:
         if not file:
-            return [{"type": "text", "text": text}]
+            return text
         try:
             img_bytes = await file.read()
             img_url = await image_variation(file.filename, img_bytes, file.content_type)

@@ -61,7 +61,7 @@ class OpenAILLM(LLMClientBase):
         self, text: str | None, file: UploadFile | None
     ) -> Any:
         if not file:
-            return [{"type": "text", "text": text}]
+            return text
         try:
             img_bytes = await file.read()
 

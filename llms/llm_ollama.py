@@ -1,8 +1,9 @@
 from typing import Any, Optional, Dict, List, Type, TypeVar
+import uuid
 from pydantic import BaseModel
 from dataclasses import dataclass, field
 
-from utils import logger
+from utils import logger, convert_img
 from llms.base import LLMClientBase
 from ollama import AsyncClient
 import asyncio
@@ -48,7 +49,38 @@ class OllamaLLM(LLMClientBase):
 
     async def build_user_message(
         self, text: str | None, file: UploadFile | None
-    ) -> dict: ...
+    ) -> dict:
+        """텍스트와 이미지를 Ollama API 형식(base64)으로 변환"""
+
+        if not file:
+            return text
+        try:
+
+            img_bytes = await file.read()
+
+            import tempfile
+            import os
+
+            # 임시파일 생성
+            temp_dir = tempfile.gettempdir()
+            temp_img_path = os.path.join(
+                temp_dir, f"{uuid.uuid4()}.{file.content_type.split('/')[-1]}"
+            )
+
+            # 이미지 바이트를 파일로 저장
+            with open(temp_img_path, "wb") as f:
+                f.write(img_bytes)
+
+            # Ollama 형식으로 메시지 구성 (이미지 경로 전달)
+            return {
+                "role": "user",
+                "content": text or "",
+                "images": [temp_img_path],  # 이미지 경로 전달
+            }
+        except Exception as e:
+            logger.error(f"이미지 처리 중 오류: {str(e)}")
+            # 오류 발생 시 텍스트만 반환
+            return {"role": "user", "content": text or ""}
 
 
 async def main():

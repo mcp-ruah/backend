@@ -1,6 +1,8 @@
+from fastapi import UploadFile
 import os, httpx
 from dotenv import load_dotenv
 from utils.logger import logger
+import base64
 
 load_dotenv()
 
@@ -29,3 +31,12 @@ async def image_variation(file_name: str, data: bytes, mime: str) -> str:
         print("ImgBB 응답:", resp.text)
         raise
     return resp.json()["data"]["url"]
+
+
+async def image_to_base64(file: UploadFile) -> str:
+    # 이미지가 있을대 - base64로 변환
+    img_bytes = await file.read()
+
+    base64_image = base64.b64encode(img_bytes).decode("utf-8")
+
+    return base64_image

@@ -190,7 +190,9 @@ class ChatSession:
 
             # LLM 첫 응답 스트리밍
             response_chunks = []
+            print("\n\n LLM 첫 응답 스트리밍  : \n")
             async for chunk in self.llm_client.stream_chat(system_message, messages):
+                print(chunk, end="", flush=True)
                 yield chunk
                 response_chunks.append(chunk)
 
@@ -231,9 +233,11 @@ class ChatSession:
 
                         # 다음 응답 생성 및 직접 스트리밍
                         response_chunks = []
+                        print("\n\n LLM 다음 응답 스트리밍  : \n")
                         async for chunk in self.llm_client.stream_chat(
                             current_messages
                         ):
+                            print(chunk, end="", flush=True)
                             yield chunk
                             response_chunks.append(chunk)
 

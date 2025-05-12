@@ -1,4 +1,4 @@
 from .logger import logger
-from .imgbb import image_variation
+from .convert_img import image_variation
 
 __all__ = ["logger", "image_variation"]

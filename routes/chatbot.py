@@ -7,7 +7,7 @@ from chat import ChatSession
 from utils import logger
 from llms import get_llm_client, get_client
 from fastapi import File, UploadFile, Form
-from utils.imgbb import image_variation
+from backend.utils.convert_img import image_variation
 from config import LLMModel
 
 router = APIRouter(prefix="/api", tags=["chatbot"])
@@ -68,6 +68,7 @@ async def api_chat(
         max_tokens=max_tokens,
         config=config,
     )
+    logger.info(f"\n\nFILE : {file}\n\n")
 
     # 이미지 존재하면 -> IMgBB 이미지 변형 API 호출
     user_content = await llm_client.build_user_message(message, file)
