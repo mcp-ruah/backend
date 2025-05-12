@@ -32,6 +32,7 @@ class OpenAILLM(LLMClientBase):
         """OPENAI LLM에서 스트리밍 응답을 비동기로 가져옴"""
         try:
             full_messages = []
+            logger.info(f"messages : {messages}")
             if system_prompt:
                 full_messages.append({"role": "system", "content": system_prompt})
             full_messages.extend(messages)
@@ -59,7 +60,7 @@ class OpenAILLM(LLMClientBase):
     ) -> Any:
         if not file:
             # return text
-            return {"type": "text", "text": text}
+            return text
         try:
             img_bytes = await file.read()
 

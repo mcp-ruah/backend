@@ -29,9 +29,8 @@ class AnthropicLLM(LLMClientBase):
     async def stream_chat(self, system_prompt, messages):
         """LLM에서 응답을 가져옴 (Anthropic API)"""
         try:
-            print(f"\n\nsystem_prompt: {system_prompt}\n\n")
-
-            print(f"\n\nmessages: {messages}\n\n")
+            # print(f"\n\nsystem_prompt: {system_prompt}\n\n")
+            # print(f"\n\nmessages: {messages}\n\n")
             async with self.client.messages.stream(
                 system=system_prompt,
                 max_tokens=4096,

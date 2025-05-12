@@ -50,7 +50,7 @@ async def api_chat(
     model: str = Form(LLMModel.GPT_4O.value),
     temperature: float = Form(LLMModel.TEMPERATURE.value),
     max_tokens: int = Form(LLMModel.MAX_TOKENS.value),
-    file: UploadFile = File(None),
+    file: UploadFile = File(None),  # list 로 수정 필요.
 ):
     """
     채팅 API 엔드포인트
@@ -72,6 +72,7 @@ async def api_chat(
 
     # 이미지 존재하면 -> IMgBB 이미지 변형 API 호출
     user_content = await llm_client.build_user_message(message, file)
+    # logger.info(f"user_content : {user_content}")
 
     # 기존 chat_session 인스턴스를 새로 만듦 (서버 리스트는 기존대로)
     chat_session = ChatSession(

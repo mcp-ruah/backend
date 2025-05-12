@@ -1,5 +1,5 @@
 import json
-from prompt.system_prompt import SystemPrompt, PROMPT_TEXT
+from prompt import SystemPrompt, PROMPT_TEXT
 from utils import logger
 from typing import List, Dict, Any, AsyncGenerator, Optional
 from contextlib import AsyncExitStack
@@ -8,6 +8,7 @@ from mcp_server import Server
 from llms import LLMClientBase
 import asyncio
 from fastapi import File
+
 
 @dataclass
 class ChatSession:

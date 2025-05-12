@@ -21,8 +21,8 @@ uv pip install -e .
 ```
 
 ```
-// 백엔드 서버 시작
-uvicorn main:app --host 127.0.0.1 --port 8000
+// 백엔드 서버 시작(루트폴더에서 실행 )
+uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
 ```
