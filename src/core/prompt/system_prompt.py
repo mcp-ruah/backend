@@ -32,7 +32,7 @@ PROMPT_TEXT = {
         "- If you need to run multiple tools in sequence, analyze the result from the first tool in <think> tags\n"
         "- Then decide if another tool call is needed or provide your final answer in <answer> tags\n"
         "- You can use up to 10 tools in sequence if needed\n\n"
-        "Please use only the tools that are explicitly defined above. Answer should be in Korean and markdown format. "
+        "Please use only the tools that are explicitly defined above. Answer should include the tool name and the result and be in Korean and markdown format. "
     ),
     SystemPrompt.ONLY_SUMMARY: "Answer with a short summary only.",
 }

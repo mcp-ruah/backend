@@ -4,13 +4,24 @@ from contextlib import AsyncExitStack
 from typing import Optional, Dict, Any, List
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from utils import logger
+from core.utils import logger
+
+
+# 에러 메시지 상수
+DOCKER_NOT_RUNNING_MSG = (
+    "Docker Desktop이 실행되지 않았습니다. Docker를 실행한 후 다시 시도해주세요."
+)
+DOCKER_NOT_FOUND_MSG = "Docker가 설치되어 있지 않거나 PATH에 없습니다."
+
+
+class DockerError(Exception):
+    """도커 관련 예외 처리용 커스텀 예외"""
+
+    pass
 
 
 @dataclass
-class Server:
-    """MCP 서버 연결 및 도구 실행 관리"""
-
+class MCPServer:
     name: str
     config: Dict[str, Any]
     stdio_context: Optional[Any] = None
@@ -33,18 +44,22 @@ class Server:
             stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                logger.error(f"도커 명령어 실행 실패: {stderr.decode()}")
-                raise Exception(f"도커 명령어 실행 실패: {stderr.decode()}")
+                error_msg = stderr.decode()
+                if "dockerDesktopLinuxEngine" in error_msg and (
+                    "cannot find the file" in error_msg or "pipe" in error_msg
+                ):
+                    raise DockerError(DOCKER_NOT_RUNNING_MSG)
+                raise DockerError(f"도커 명령어 실행 실패: {error_msg}")
 
             output = stdout.decode().strip()
             return output.split("\n") if output else []
+        except FileNotFoundError:
+            raise DockerError(DOCKER_NOT_FOUND_MSG)
         except Exception as e:
-            logger.error(f"도커 컨테이너 상태 확인 중 오류: {str(e)}")
-            raise  # 에러를 상위로 전파
+            raise DockerError(f"도커 컨테이너 상태 확인 중 오류: {str(e)}")
 
     @staticmethod
     async def stop_container(container_name: str) -> bool:
-        """도커 컨테이너 종료"""
         try:
             result = subprocess.run(
                 ["docker", "stop", container_name],
@@ -60,14 +75,12 @@ class Server:
 
     @staticmethod
     def get_container_name_from_config(server_name: str, config: Dict[str, Any]) -> str:
-        """서버 설정에서 컨테이너 이름 추출"""
         if config.get("command") == "docker" and config.get("args"):
             args = config.get("args", [])
             if "--name" in args:
                 idx = args.index("--name")
                 if idx + 1 < len(args):
                     return args[idx + 1]
-        # 기본 이름 형식 반환
         return f"mcp-{server_name}"
 
     @staticmethod
@@ -76,29 +89,24 @@ class Server:
         running_servers_status: List[Dict[str, Any]],
         running_server_names: List[str],
     ) -> List[Dict[str, Any]]:
-        """모든 서버의 상태 목록 생성"""
         all_servers_status = []
-        running_containers = await Server.get_running_containers()
+        running_containers = await MCPServer.get_running_containers()
 
         for server_name, srv_config in server_configs.items():
-            # 컨테이너 이름 확인
-            container_name = Server.get_container_name_from_config(
+            container_name = MCPServer.get_container_name_from_config(
                 server_name, srv_config
             )
-
-            # ChatSession에 있는 실행 중인 서버라면 상세 정보 포함
             if server_name in running_server_names:
                 for running_server in running_servers_status:
                     if running_server["name"] == server_name:
                         all_servers_status.append(running_server)
                         break
-            # 도커에는 실행 중이지만 ChatSession에 없는 경우
             elif container_name in running_containers:
                 all_servers_status.append(
                     {
                         "name": server_name,
                         "initialized": False,
-                        "status": "external_running",  # 외부에서 실행 중이지만 ChatSession에 연결되지 않음
+                        "status": "external_running",
                         "container_name": container_name,
                         "config": {
                             "command": srv_config.get("command", ""),
@@ -106,7 +114,6 @@ class Server:
                         "message": "도커에서 실행 중이지만 백엔드에 연결되지 않았습니다. 재시작하세요.",
                     }
                 )
-            # 실행 중이 아니라면 기본 정보만 포함
             else:
                 all_servers_status.append(
                     {
@@ -118,7 +125,6 @@ class Server:
                         },
                     }
                 )
-
         return all_servers_status
 
     async def initialize(self) -> None:
@@ -179,7 +185,7 @@ class Server:
             RuntimeError : 서버 초기화 실패 또는 도구 목록 가져오기 실패
         """
         if not self.session:
-            raise RuntimeError(f"Server {self.name} not initialized")
+            raise RuntimeError(f"MCPServer {self.name} not initialized")
 
         tools_response = await self.session.list_tools()
         tools = []

@@ -1,8 +1,8 @@
 from typing import Any, Optional, Dict, List, AsyncGenerator
 from dataclasses import dataclass, field
 
-from utils import logger, image_variation
-from llms.base import LLMClientBase
+from core.utils import logger, image_variation
+from core.llms.base import LLMClientBase
 
 # from base import LLMClientBase
 from anthropic import AsyncAnthropic

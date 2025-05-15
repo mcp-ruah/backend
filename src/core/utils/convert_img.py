@@ -1,7 +1,7 @@
 from fastapi import UploadFile
 import os, httpx
 from dotenv import load_dotenv
-from utils.logger import logger
+from core.utils import logger
 import base64
 
 load_dotenv()

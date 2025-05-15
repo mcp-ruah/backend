@@ -2,8 +2,8 @@ from typing import Any, Optional, Dict, List, AsyncGenerator, Type, TypeVar
 from pydantic import BaseModel
 from dataclasses import dataclass, field
 
-from utils import logger, image_variation
-from llms.base import LLMClientBase
+from core.utils import logger, image_variation
+from core.llms.base import LLMClientBase
 
 # from base import LLMClientBase
 from openai import AsyncOpenAI, OpenAI
@@ -59,7 +59,6 @@ class OpenAILLM(LLMClientBase):
         self, text: str | None, file: UploadFile | None
     ) -> Any:
         if not file:
-            # return text
             return text
         try:
             img_bytes = await file.read()

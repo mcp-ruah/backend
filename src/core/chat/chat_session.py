@@ -1,11 +1,11 @@
 import json
-from prompt import SystemPrompt, PROMPT_TEXT
-from utils import logger
+from core.prompt import SystemPrompt, PROMPT_TEXT
+from core.utils import logger
 from typing import List, Dict, Any, AsyncGenerator, Optional
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from mcp_server import Server
-from llms import LLMClientBase
+from core.mcp_server import MCPServer
+from core.llms import LLMClientBase
 import asyncio
 from fastapi import File
 
@@ -14,7 +14,7 @@ from fastapi import File
 class ChatSession:
     """user, LLM, tools 간의 상호작용 관리"""
 
-    servers: list[Server]
+    servers: list[MCPServer]
     llm_client: Optional[LLMClientBase] = None
 
     # async def cleanup_servers(self) -> None:
@@ -39,6 +39,7 @@ class ChatSession:
             try:
                 server_status = await server.get_status()
                 status_list.append(server_status)
+                logger.info(f"서버 상태 확인 완료: {server_status}")
             except Exception as e:
                 logger.error(f"{server.name} 서버 상태 확인 중 오류: {str(e)}")
                 status_list.append(
@@ -236,7 +237,7 @@ class ChatSession:
                         response_chunks = []
                         print("\n\n LLM 다음 응답 스트리밍  : \n")
                         async for chunk in self.llm_client.stream_chat(
-                            current_messages
+                            system_message, current_messages
                         ):
                             print(chunk, end="", flush=True)
                             yield chunk

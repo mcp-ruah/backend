@@ -2,12 +2,11 @@ from fastapi import APIRouter, Request, Header, Depends
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, List, Any
 import uuid
-from schema import ChatRequest
-from chat import ChatSession
-from utils import logger
-from llms import get_llm_client, get_client
+from core.schema import ChatRequest
+from core.chat import ChatSession
+from core.utils import logger, image_variation
+from core.llms import get_llm_client, get_client
 from fastapi import File, UploadFile, Form
-from utils.convert_img import image_variation
 from config import LLMModel
 
 router = APIRouter(prefix="/api", tags=["chatbot"])

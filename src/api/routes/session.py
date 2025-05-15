@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from typing import Dict, List
-from utils import logger
+from core.utils import logger
 
 router = APIRouter(prefix="/api", tags=["session"])
 

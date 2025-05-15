@@ -12,7 +12,7 @@ class LLMClientBase(ABC):
 
     @abstractmethod
     async def stream_chat(
-        self, system_prompt: str | None, messages: List[dict]
+        self, system_prompt: str | None, messages: List[dict] = None
     ) -> AsyncGenerator[str, None]:
         """
         LLM에서 응답을 비동기로 스트리밍 방식으로 가져옴.

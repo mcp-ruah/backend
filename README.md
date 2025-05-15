@@ -25,11 +25,7 @@ uv pip install -e .
 uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-```
-//docke-compose 빌드
-//이미지 빌드 후 컨테이너 시작
-docker-compose up -d --build
-```
+
 
 ## Linux Docker 서비스 관리 명령어
 ```

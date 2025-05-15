@@ -4,14 +4,14 @@ import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from typing import Dict, List
-from utils import logger
-from chat import ChatSession
+from src.core.utils import logger
+from core.chat import ChatSession
 from contextlib import asynccontextmanager
 from config import Configuration
-from mcp_server.mcp_server import Server
+from core.mcp_server import MCPServer
 
 # 라우터 임포트
-from routes import chat_router, server_router, session_router, test_router
+from api.routes import chat_router, server_router, session_router, test_router
 
 # Windows에서 이벤트 루프 설정
 if sys.platform == "win32":

@@ -1,65 +1,45 @@
 from fastapi import APIRouter, Request, HTTPException
 from typing import Dict, Tuple, Any, Optional
-from utils import logger
-from mcp_server import Server
-from chat import ChatSession
+from core.utils import logger
+from core.mcp_server import MCPServer, DockerError
+from core.chat import ChatSession
 
 router = APIRouter(prefix="/api", tags=["server"])
 
+
 @router.get("/mcp-status")
 async def get_mcp_status(request: Request):
+    logger.info("MCP 상태 조회 시작")
     try:
-        # 1. 설정 로드 확인
-        logger.info("MCP 상태 조회 시작")
         server_config, chat_session = await _get_server_config(request)
-        logger.info(f"서버 설정 로드됨: {server_config}")
-
-        # 2. chat_session 상태 확인
         if not chat_session:
-            logger.error("ChatSession이 None입니다")
-            return {"status": "error", "message": "ChatSession이 초기화되지 않았습니다"}
+            return error_response("ChatSession이 초기화되지 않았습니다.")
 
-        # 3. 실행 중인 서버 상태 확인
         try:
             running_servers_status = await chat_session.get_servers_status()
-            logger.info(f"실행 중인 서버 상태: {running_servers_status}")
-
-            running_server_names = [server["name"] for server in running_servers_status]
-            logger.info(f"실행 중인 서버 이름: {running_server_names}")
-
-            # 4. 도커 컨테이너 상태 확인
-            running_containers = await Server.get_running_containers()
-            logger.info(f"실행 중인 도커 컨테이너: {running_containers}")
-
-            # 5. 전체 서버 상태 목록 생성
-            all_servers_status = await Server.get_server_status_list(
+            running_server_names = [s["name"] for s in running_servers_status]
+            all_servers_status = await MCPServer.get_server_status_list(
                 server_config["mcpServers"],
                 running_servers_status,
                 running_server_names,
             )
-            # logger.info(f"전체 서버 상태: {all_servers_status}")
-
             return {
                 "status": "ok",
                 "servers_count": len(all_servers_status),
                 "servers": all_servers_status,
             }
+        except DockerError as de:
+            logger.error(f"Docker 오류: {str(de)}")
+            return error_response(str(de), detail=str(de))
         except Exception as e:
             logger.error(f"서버 상태 조회 중 오류: {str(e)}", exc_info=True)
-            return {
-                "status": "error",
-                "error": str(e),
-                "servers_count": 0,
-                "servers": [],
-                "message": f"서버 상태 조회 중 오류가 발생했습니다: {str(e)}",
-            }
+            return error_response(
+                "서버 상태 조회 중 오류가 발생했습니다.", detail=str(e)
+            )
     except Exception as e:
         logger.error(f"MCP 상태 조회 중 최상위 오류: {str(e)}", exc_info=True)
-        return {
-            "status": "error",
-            "error": str(e),
-            "message": "MCP 상태 조회 중 오류가 발생했습니다",
-        }
+        return error_response("MCP 상태 조회 중 오류가 발생했습니다.", detail=str(e))
+
 
 @router.post("/server/{server_name}/start")
 async def start_server(server_name: str, request: Request):
@@ -79,9 +59,20 @@ async def restart_server(server_name: str, request: Request):
 ####################################################################################
 
 
-class ServerError(HTTPException):
+class MCPServerError(HTTPException):
     def __init__(self, detail: str):
         super().__init__(status_code=500, detail=f"서버 오류: {detail}")
+
+
+def error_response(message: str, detail: str = "", servers: list = None) -> dict:
+    """에러 응답 포맷 통일"""
+    return {
+        "status": "error",
+        "message": message,
+        "error": detail,
+        "servers_count": 0,
+        "servers": servers or [],
+    }
 
 
 async def _get_server_config(
@@ -102,7 +93,7 @@ async def _get_server_config(
         return config, chat_session
     except Exception as e:
         logger.error(f"설정 파일 로드 실패: {str(e)}")
-        raise ServerError(f"설정 파일 로드 실패: {str(e)}")
+        raise MCPServerError(f"설정 파일 로드 실패: {str(e)}")
 
 
 async def _manage_server(action: str, server_name: str, request: Request) -> Dict:
@@ -112,7 +103,7 @@ async def _manage_server(action: str, server_name: str, request: Request) -> Dic
         target_server = next(
             (s for s in chat_session.servers if s.name == server_name), None
         )
-        container_name = Server.get_container_name_from_config(
+        container_name = MCPServer.get_container_name_from_config(
             server_name, server_config["mcpServers"][server_name]
         )
 
@@ -125,7 +116,9 @@ async def _manage_server(action: str, server_name: str, request: Request) -> Dic
                     "message": f"서버 '{server_name}'은(는) 이미 실행 중입니다.",
                 }
 
-            new_server = Server(server_name, server_config["mcpServers"][server_name])
+            new_server = MCPServer(
+                server_name, server_config["mcpServers"][server_name]
+            )
             await new_server.initialize()
             chat_session.servers.append(new_server)
             logger.info(f"서버 '{server_name}'이(가) 성공적으로 시작되었습니다.")
@@ -140,11 +133,13 @@ async def _manage_server(action: str, server_name: str, request: Request) -> Dic
                 await target_server.cleanup()
                 chat_session.servers.remove(target_server)
             elif container_name:
-                running_containers = await Server.get_running_containers()
+                running_containers = await MCPServer.get_running_containers()
                 if container_name in running_containers:
-                    if not await Server.stop_container(container_name):
+                    if not await MCPServer.stop_container(container_name):
                         logger.error(f"도커 컨테이너 '{container_name}' 종료 실패")
-                        raise ServerError(f"도커 컨테이너 '{container_name}' 종료 실패")
+                        raise MCPServerError(
+                            f"도커 컨테이너 '{container_name}' 종료 실패"
+                        )
                 elif action == "stop":
                     logger.info(f"서버 '{server_name}'이(가) 실행 중이 아닙니다.")
                     return {
@@ -154,7 +149,7 @@ async def _manage_server(action: str, server_name: str, request: Request) -> Dic
                     }
 
             if action == "restart":
-                new_server = Server(
+                new_server = MCPServer(
                     server_name, server_config["mcpServers"][server_name]
                 )
                 await new_server.initialize()
@@ -174,4 +169,4 @@ async def _manage_server(action: str, server_name: str, request: Request) -> Dic
 
     except Exception as e:
         logger.error(f"서버 '{server_name}' {action} 중 오류: {str(e)}", exc_info=True)
-        raise ServerError(str(e))
+        raise MCPServerError(str(e))

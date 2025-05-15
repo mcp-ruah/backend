@@ -3,3 +3,6 @@
 .venv
 mcp_servers.json
 __pycache__
+tmp
+docs
+tools
