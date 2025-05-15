@@ -1,8 +1,8 @@
 from typing import Dict, List
 import uuid
 from dataclasses import dataclass, field
-from core.utils import logger
-from core.llms.base import LLMClientBase
+from utils import logger
+from llms.base import LLMClientBase
 from ollama import AsyncClient
 import asyncio
 from config import LLMModel
@@ -28,18 +28,16 @@ class OllamaLLM(LLMClientBase):
             if system_prompt:
                 full_messages.append({"role": "system", "content": system_prompt})
             # 메시지 형식을 확인하고 변환
-            for msg in messages:
-                if msg["role"] == "user" and hasattr(self, "image_path"):
-                    full_messages.append(
-                        {
-                            "role": "user",
-                            "content": msg["content"],
-                            "images": [self.image_path],
-                        }
-                    )
-                    # 이미지 경로 초기화
-                    delattr(self, "image_path")
-                else:
+            for msg in messages :
+                if msg["role"] == "user" and hasattr(self, 'image_path'):
+                    full_messages.append({
+                        "role":"user",
+                        "content": msg["content"],
+                        "images": [self.image_path]
+                    })
+                    # 이미지 경로 초기화 
+                    delattr(self, 'image_path')
+                else : 
                     full_messages.append(msg)
             # full_messages.extend(messages)
             logger.info(f"full_messages : {full_messages}")
@@ -90,7 +88,7 @@ class OllamaLLM(LLMClientBase):
             print(f"self.image_path : {temp_img_path}")
 
             return text or ""
-
+        
         except Exception as e:
             logger.error(f"이미지 처리 중 오류: {str(e)}")
             # 오류 발생 시 기본 메시지 반환
@@ -99,21 +97,21 @@ class OllamaLLM(LLMClientBase):
 
 async def main():
     # OllamaLLM 인스턴스 생성 (필요시 model명 변경)
-
+    
     llm = OllamaLLM(model=LLMModel.GEMMA3_12B.value)
     system_prompt = "You are a helpful assistant."
 
     # 테스트 메시지
     messages = [
         {
-            "role": "user",
-            "content": "한국의 수도는 어디야?",
+            "role": "user", 
+            "content": "한국의 수도는 어디야?"
             # "images": ["/home/ruah0807/Desktop/mcp-agent/backend/tmp/sample.jpg"]
-        },
+            },
     ]
 
     print("Ollama LLM 응답:")
-    async for chunk in llm.stream_chat(system_prompt, messages):
+    async for chunk in llm.stream_chat(system_prompt,messages):
         print(chunk, end="", flush=True)
 
 
